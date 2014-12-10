@@ -1,0 +1,217 @@
+#!/bin/sh
+#
+# Resource script for Tibero database
+#
+# Description:  Manages Tibero database as an OCF resource in 
+#               an High Availability setup.
+#
+# Author:       Ilya Voronin <ivoronin@jet.msk.su>
+# License:      GNU General Public License (GPL) 
+#
+# OCF parameters:
+#
+# OCF_RESKEY_tb_user
+# OCF_RESKEY_tb_home
+# OCF_RESKEY_tb_sid
+#
+
+: "${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}"
+. "${OCF_FUNCTIONS_DIR}/ocf-shellfuncs"
+
+USAGE="Usage: $0 {start|stop|monitor|validate-all|meta-data}"
+
+usage() 
+{
+	echo "${USAGE}" >&2
+}
+
+meta_data() 
+{
+	cat <<END
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="tibero">
+<version>1.0</version>
+<longdesc lang="en">
+This script manages Tibero database
+</longdesc>
+<shortdesc lang="en">Manages a Tibero database</shortdesc>
+
+<parameters>
+
+<parameter name="tb_home">
+<longdesc lang="en">
+Tibero HOME
+</longdesc>
+<shortdesc lang="en">TB_HOME</shortdesc>
+<content type="string" default="/opt/tibero/Tibero/tibero5"/>
+</parameter>
+
+<parameter name="tb_user">
+<longdesc lang="en">
+Tibero user
+</longdesc>
+<shortdesc lang="en">Tibero user</shortdesc>
+<content type="string" default="tibero"/>
+</parameter>
+
+
+<parameter name="tb_sid" required="1">
+<longdesc lang="en">
+Tibero SID
+</longdesc>
+<shortdesc lang="en">TB_SID</shortdesc>
+<content type="string" default=""/>
+</parameter>
+
+</parameters>
+
+<actions>
+<action name="start" timeout="60s"/>
+<action name="stop" timeout="60s"/>
+<action name="monitor" depth="0" timeout="20s" interval="60s" />
+<action name="validate-all" timeout="5s"/>
+<action name="meta-data"  timeout="5s"/>
+</actions>
+</resource-agent>
+END
+
+	exit "${OCF_SUCCESS}"
+}
+
+TB_USER="${OCF_RESKEY_tb_user-tibero}"
+TB_HOME="${OCF_RESKEY_tb_home-/opt/tibero/Tibero/tibero5}"
+TB_SID="${OCF_RESKEY_tb_sid}"
+
+TB_PROBE="${TB_HOME}/bin/tbprobe"
+TB_DOWN="${TB_HOME}/bin/tbdown"
+TB_BOOT="${TB_HOME}/bin/tbboot"
+
+
+tibero_run() {
+	su - "${TB_USER}" -c "TB_HOME=${TB_HOME}; TB_SID=${TB_SID}; LD_LIBRARY_PATH=${TB_HOME}/lib:${TB_HOME}/client/lib; exec $1"
+}
+
+
+tibero_validate_all() {
+	check_binary "${TB_PROBE}"
+	check_binary "${TB_DOWN}"
+	check_binary "${TB_BOOT}"
+}
+
+
+tibero_monitor()
+{
+	local RC
+	tibero_validate_all || exit "$?"
+
+	tibero_run "${TB_PROBE}"
+	RC="$?"
+	if [ "${RC}" -ne 0 ]; then
+		ocf_log debug "${TB_PROBE} exit status is ${RC}"
+		return "${OCF_NOT_RUNNING}"
+	fi
+
+	return "${OCF_SUCCESS}"
+}
+
+
+tibero_start()
+{
+	local RC
+	tibero_validate_all || exit "$?"
+
+	if tibero_monitor; then
+		ocf_log warn "Tibero is already running"
+		return "${OCF_SUCCESS}"
+	fi
+
+	# tbboot hangs if its output is not attached to a pty
+	ocf_run tibero_run "script -c ${TB_BOOT} -q /dev/null"
+	RC="$?"
+	if [ "${RC}" -ne 0 ]; then
+		ocf_log err "${TB_BOOT} exit status is ${RC}"
+		return "${OCF_ERR_GENERIC}"
+	fi
+
+	while true; do
+		tibero_monitor
+		RC="$?"
+		if [ "${RC}" -eq "${OCF_SUCCESS}" ]; then
+			break
+		fi
+
+		ocf_log debug "Tibero has not started yet, waiting"
+		sleep 5
+	done
+
+
+	ocf_log info "Tibero was successfully started"
+	return "${OCF_SUCCESS}"
+}
+
+
+tibero_stop()
+{
+	local RC
+	tibero_validate_all || exit "$?"
+
+	tibero_monitor
+	RC="$?"
+	if [ "${RC}" -eq "${OCF_NOT_RUNNING}" ]; then
+		ocf_log warn "Tibero is already stopped"
+		return "${OCF_SUCCESS}"
+	fi
+
+	ocf_run tibero_run "${TB_DOWN}"
+	RC="$?"
+	if [ "${RC}" -ne 0 ]; then
+		ocf_log err "${TB_DOWN} exit status is ${RC}"
+		return "${OCF_ERR_GENERIC}"
+	fi
+
+	while true; do
+		tibero_monitor
+		RC="$?"
+		if [ "${RC}" -ne "${OCF_SUCCESS}" ]; then
+			break
+		fi
+
+		ocf_log debug "Tibero has not stopped yet, waiting"
+		sleep 5
+	done
+
+	ocf_log info "Tibero was successfully stopped"
+	return "${OCF_SUCCESS}"
+}
+
+if [ "$#" -ne 1 ]; then
+	usage
+	exit "${OCF_ERR_ARGS}"
+fi
+
+case "$1" in
+	start)  tibero_start
+		;;
+	
+	stop)	tibero_stop
+		;;
+
+	monitor)tibero_monitor
+		;;
+
+	validate-all)	tibero_validate_all
+			;;
+
+	meta-data)	meta_data
+			;;
+
+	usage)	usage
+		exit "${OCF_SUCCESS}"
+		;;
+
+	*)	usage
+		exit "${OCF_ERR_UNIMPLEMENTED}"
+		;;
+esac
+

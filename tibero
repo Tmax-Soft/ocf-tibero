@@ -126,6 +126,9 @@ tibero_start()
 		return "${OCF_SUCCESS}"
 	fi
 
+	# remove garbage files if needed
+	ocf_run tibero_run "${TB_DOWN}" clean < /dev/null
+
 	# tbboot hangs if its output is not attached to a pty
 	ocf_run tibero_run "script -c ${TB_BOOT} -q /dev/null"
 	RC="$?"
@@ -163,7 +166,7 @@ tibero_stop()
 		return "${OCF_SUCCESS}"
 	fi
 
-	ocf_run tibero_run "${TB_DOWN}"
+	ocf_run tibero_run "${TB_DOWN}" -t IMMEDIATE
 	RC="$?"
 	if [ "${RC}" -ne 0 ]; then
 		ocf_log err "${TB_DOWN} exit status is ${RC}"

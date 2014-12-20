@@ -171,13 +171,13 @@ tibero_start()
 
 	# tbboot hangs if its output is not attached to a pty
 	ocf_run tibero_run script -c \"${TB_BOOT} -t MOUNT\" -q /dev/null
- 	ocf_run tibero_end_backup
-	ocf_run tibero_open
 	RC="$?"
 	if [ "${RC}" -ne 0 ]; then
 		ocf_log err "${TB_BOOT} exit status is ${RC}"
 		return "${OCF_ERR_GENERIC}"
 	fi
+	ocf_run tibero_end_backup
+	ocf_run tibero_open
 
 	while true; do
 		tibero_monitor

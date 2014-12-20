@@ -107,6 +107,11 @@ TB_PROBE="${TB_HOME}/bin/tbprobe"
 TB_DOWN="${TB_HOME}/bin/tbdown"
 TB_BOOT="${TB_HOME}/bin/tbboot"
 
+TBCM_PROBE_NORMAL=0
+TBCM_PROBE_STANDBY=1
+TBCM_PROBE_UNKNOWN=2
+TBCM_PROBE_DEAD=3
+
 
 tibero_run() {
 	su - "${TB_OWNER}" -c "TB_HOME=${TB_HOME}; TB_SID=${TB_SID}; LD_LIBRARY_PATH=${TB_HOME}/lib:${TB_HOME}/client/lib; exec $*"
@@ -147,7 +152,7 @@ tibero_monitor()
 
 	tibero_run "${TB_PROBE}"
 	RC="$?"
-	if [ "${RC}" -ne 0 ]; then
+	if [ "${RC}" -ne "${TBCM_PROBE_NORMAL}" ]; then
 		ocf_log debug "${TB_PROBE} exit status is ${RC}"
 		return "${OCF_NOT_RUNNING}"
 	fi

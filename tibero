@@ -10,9 +10,11 @@
 #
 # OCF parameters:
 #
-# OCF_RESKEY_tb_user
+# OCF_RESKEY_tb_owner
 # OCF_RESKEY_tb_home
 # OCF_RESKEY_tb_sid
+# OCF_RESKEY_tb_user
+# OCF_RESKEY_tb_password
 #
 
 : "${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}"
@@ -47,11 +49,11 @@ Tibero HOME
 <content type="string" default="/opt/tibero/Tibero/tibero5"/>
 </parameter>
 
-<parameter name="tb_user">
+<parameter name="tb_owner">
 <longdesc lang="en">
-Tibero user
+Tibero owner (OS user)
 </longdesc>
-<shortdesc lang="en">Tibero user</shortdesc>
+<shortdesc lang="en">Tibero owner</shortdesc>
 <content type="string" default="tibero"/>
 </parameter>
 
@@ -61,6 +63,22 @@ Tibero user
 Tibero SID
 </longdesc>
 <shortdesc lang="en">TB_SID</shortdesc>
+<content type="string" default=""/>
+</parameter>
+
+<parameter name="tb_user" required="1">
+<longdesc lang="en">
+Tibero user
+</longdesc>
+<shortdesc lang="en">Tiber user</shortdesc>
+<content type="string" default=""/>
+</parameter>
+
+<parameter name="tb_password" required="1">
+<longdesc lang="en">
+Tibero user password
+</longdesc>
+<shortdesc lang="en">Tibero user password</shortdesc>
 <content type="string" default=""/>
 </parameter>
 
@@ -79,9 +97,11 @@ END
 	exit "${OCF_SUCCESS}"
 }
 
-TB_USER="${OCF_RESKEY_tb_user-tibero}"
+TB_OWNER="${OCF_RESKEY_tb_owner-tibero}"
 TB_HOME="${OCF_RESKEY_tb_home-/opt/tibero/Tibero/tibero5}"
 TB_SID="${OCF_RESKEY_tb_sid}"
+TB_USER="${OCF_RESKEY_tb_user}"
+TB_PASSWORD="${OCF_RESKEY_tb_password}"
 
 TB_PROBE="${TB_HOME}/bin/tbprobe"
 TB_DOWN="${TB_HOME}/bin/tbdown"
@@ -89,7 +109,27 @@ TB_BOOT="${TB_HOME}/bin/tbboot"
 
 
 tibero_run() {
-	su - "${TB_USER}" -c "TB_HOME=${TB_HOME}; TB_SID=${TB_SID}; LD_LIBRARY_PATH=${TB_HOME}/lib:${TB_HOME}/client/lib; exec $1"
+	su - "${TB_OWNER}" -c "TB_HOME=${TB_HOME}; TB_SID=${TB_SID}; LD_LIBRARY_PATH=${TB_HOME}/lib:${TB_HOME}/client/lib; exec $*"
+}
+
+
+tibero_sql() {
+	tibero_run tbsql -i -s "${TB_USER}/${TB_PASSWORD}@${TB_SID}"
+}
+
+
+tibero_end_backup() {
+	tibero_sql <<EOF
+ALTER DATABASE END BACKUP;
+exit;
+EOF
+}
+
+tibero_open() {
+	tibero_sql <<EOF
+ALTER DATABASE OPEN;
+exit;
+EOF
 }
 
 
@@ -130,7 +170,9 @@ tibero_start()
 	ocf_run tibero_run "${TB_DOWN}" clean < /dev/null
 
 	# tbboot hangs if its output is not attached to a pty
-	ocf_run tibero_run "script -c ${TB_BOOT} -q /dev/null"
+	ocf_run tibero_run script -c \"${TB_BOOT} -t MOUNT\" -q /dev/null
+ 	ocf_run tibero_end_backup
+	ocf_run tibero_open
 	RC="$?"
 	if [ "${RC}" -ne 0 ]; then
 		ocf_log err "${TB_BOOT} exit status is ${RC}"
@@ -166,6 +208,7 @@ tibero_stop()
 		return "${OCF_SUCCESS}"
 	fi
 
+	ocf_run tibero_end_backup
 	ocf_run tibero_run "${TB_DOWN}" -t IMMEDIATE
 	RC="$?"
 	if [ "${RC}" -ne 0 ]; then

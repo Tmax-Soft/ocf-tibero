@@ -20,14 +20,24 @@
 : "${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}"
 . "${OCF_FUNCTIONS_DIR}/ocf-shellfuncs"
 
-USAGE="Usage: $0 {start|stop|monitor|validate-all|meta-data}"
-
-usage() 
-{
-	echo "${USAGE}" >&2
+tibero_methods() {
+	cat <<EOF
+start
+stop
+monitor
+methods
+meta-data
+usage
+EOF
 }
 
-meta_data() 
+
+tibero_usage() {
+	echo "$0 {start|stop|monitor|meta-data}"
+}
+
+
+tibero_meta_data() 
 {
 	cat <<END
 <?xml version="1.0"?>
@@ -71,7 +81,7 @@ Tibero SID
 Tibero user
 </longdesc>
 <shortdesc lang="en">Tiber user</shortdesc>
-<content type="string" default=""/>
+<content type="string" default="sys"/>
 </parameter>
 
 <parameter name="tb_password" required="1">
@@ -100,7 +110,7 @@ END
 TB_OWNER="${OCF_RESKEY_tb_owner-tibero}"
 TB_HOME="${OCF_RESKEY_tb_home-/opt/tibero/Tibero/tibero5}"
 TB_SID="${OCF_RESKEY_tb_sid}"
-TB_USER="${OCF_RESKEY_tb_user}"
+TB_USER="${OCF_RESKEY_tb_user-sys}"
 TB_PASSWORD="${OCF_RESKEY_tb_password}"
 
 TB_PROBE="${TB_HOME}/bin/tbprobe"
@@ -138,17 +148,9 @@ EOF
 }
 
 
-tibero_validate_all() {
-	check_binary "${TB_PROBE}"
-	check_binary "${TB_DOWN}"
-	check_binary "${TB_BOOT}"
-}
-
-
 tibero_monitor()
 {
 	local RC
-	tibero_validate_all || exit "$?"
 
 	tibero_run "${TB_PROBE}"
 	RC="$?"
@@ -164,7 +166,6 @@ tibero_monitor()
 tibero_start()
 {
 	local RC
-	tibero_validate_all || exit "$?"
 
 	if tibero_monitor; then
 		ocf_log warn "Tibero is already running"
@@ -204,7 +205,6 @@ tibero_start()
 tibero_stop()
 {
 	local RC
-	tibero_validate_all || exit "$?"
 
 	tibero_monitor
 	RC="$?"
@@ -236,33 +236,7 @@ tibero_stop()
 	return "${OCF_SUCCESS}"
 }
 
-if [ "$#" -ne 1 ]; then
-	usage
-	exit "${OCF_ERR_ARGS}"
-fi
 
-case "$1" in
-	start)  tibero_start
-		;;
-	
-	stop)	tibero_stop
-		;;
-
-	monitor)tibero_monitor
-		;;
-
-	validate-all)	tibero_validate_all
-			;;
-
-	meta-data)	meta_data
-			;;
-
-	usage)	usage
-		exit "${OCF_SUCCESS}"
-		;;
-
-	*)	usage
-		exit "${OCF_ERR_UNIMPLEMENTED}"
-		;;
-esac
-
+OCF_REQUIRED_PARAMS="tb_sid tb_password"
+OCF_REQUIRED_BINARIES="${TB_PROBE} ${TB_DOWN} ${TB_BOOT}"
+ocf_rarun $*
